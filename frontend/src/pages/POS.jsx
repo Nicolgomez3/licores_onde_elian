@@ -15,7 +15,7 @@ export default function POS() {
   const [metodoPago, setMetodoPago] = useState('Efectivo');
   const [efectivoRecibido, setEfectivoRecibido] = useState('');
   const [ultimaVenta, setUltimaVenta] = useState(null);
-  
+
   // Estados para el Modal moderno de Producto No Encontrado
   const [modalNoEncontradoAbierto, setModalNoEncontradoAbierto] = useState(false);
   const [codigoNoRegistrado, setCodigoNoRegistrado] = useState('');
@@ -25,6 +25,35 @@ export default function POS() {
   // Variables de buffer para la lectura ultra rápida del lector USB
   const barcodeBufferRef = useRef('');
   const lastKeyTimeRef = useRef(Date.now());
+
+  const resolverCategoria = (p) => {
+    const catId = Number(p.categoria_id);
+    const nombreLower = String(p.nombre || '').toLowerCase();
+
+    if (catId === 2 || nombreLower.includes('picada') || nombreLower.includes('papas')) {
+      return 'Piqueteadero y Comidas';
+    }
+    if (
+      catId === 3 ||
+      nombreLower.includes('margarita') ||
+      nombreLower.includes('mecato') ||
+      nombreLower.includes('galleta')
+    ) {
+      return 'Mecato';
+    }
+    return 'Licores y Cervezas';
+  };
+
+  const formatearProductos = (lista) =>
+    lista.map((p) => ({
+      id: p.id,
+      codigoBarras: p.codigo_barras || p.codigoBarras,
+      nombre: p.nombre,
+      precioVenta: Number(p.precio_venta),
+      precio_compra: Number(p.precio_compra || 0),
+      stock: p.stock_actual,
+      categoria: resolverCategoria(p)
+    }));
 
   // Cargar productos reales desde el backend (MySQL) al montar el componente
   useEffect(() => {
@@ -69,68 +98,41 @@ export default function POS() {
 
   const procesarCodigoEscaneado = (codigo) => {
     const codigoLimpio = String(codigo).trim();
-    
+
     // Búsqueda precisa limpiando espacios y comparando ambos lados como texto
-    const encontrado = productos.find(p => String(p.codigoBarras).trim() === codigoLimpio);
-    
+    const encontrado = productos.find((p) => String(p.codigoBarras).trim() === codigoLimpio);
+
     if (encontrado) {
       addToCart(encontrado);
     } else {
       // Refrescamos los productos del servidor por si acaso se registró recientemente
-      api.get('/products').then(response => {
-        const actualizados = response.data.map(p => ({
-          id: p.id,
-          codigoBarras: p.codigo_barras || p.codigoBarras,
-          nombre: p.nombre,
-          precioVenta: Number(p.precio_venta),
-          precio_compra: Number(p.precio_compra || 0),
-          stock: p.stock_actual,
-          categoria: (p.categoria_id === 2 || p.nombre.toLowerCase().includes('picada')) ? 'Piqueteadero y Comidas' : 'Licores y Cervezas'
-        }));
-        
-        const reintento = actualizados.find(p => String(p.codigoBarras).trim() === codigoLimpio);
-        if (reintento) {
-          setProductos(actualizados);
-          addToCart(reintento);
-        } else {
-          // Si definitivamente no está en la base de datos, abrimos el modal moderno
+      api
+        .get('/products')
+        .then((response) => {
+          const actualizados = formatearProductos(response.data);
+          const reintento = actualizados.find((p) => String(p.codigoBarras).trim() === codigoLimpio);
+
+          if (reintento) {
+            setProductos(actualizados);
+            addToCart(reintento);
+          } else {
+            // Si definitivamente no está en la base de datos, abrimos el modal moderno
+            setCodigoNoRegistrado(codigoLimpio);
+            setModalNoEncontradoAbierto(true);
+          }
+        })
+        .catch((err) => {
+          console.error('Error al reintentar búsqueda:', err);
           setCodigoNoRegistrado(codigoLimpio);
           setModalNoEncontradoAbierto(true);
-        }
-      }).catch(err => {
-        console.error('Error al reintentar búsqueda:', err);
-        setCodigoNoRegistrado(codigoLimpio);
-        setModalNoEncontradoAbierto(true);
-      });
+        });
     }
   };
 
   const fetchProductos = async () => {
     try {
       const response = await api.get('/products');
-      const productosFormateados = response.data.map(p => {
-        let nombreCategoria = 'Licores y Cervezas';
-        const nombreLower = p.nombre.toLowerCase();
-        
-        if (p.categoria_id === 2 || nombreLower.includes('picada') || nombreLower.includes('papas')) {
-          nombreCategoria = 'Piqueteadero y Comidas';
-        } else if (nombreLower.includes('margarita') || nombreLower.includes('mecato')) {
-          nombreCategoria = 'Mecato';
-        } else {
-          nombreCategoria = 'Licores y Cervezas';
-        }
-
-        return {
-          id: p.id,
-          codigoBarras: p.codigo_barras || p.codigoBarras,
-          nombre: p.nombre,
-          precioVenta: Number(p.precio_venta),
-          precio_compra: Number(p.precio_compra || 0),
-          stock: p.stock_actual,
-          categoria: nombreCategoria
-        };
-      });
-      setProductos(productosFormateados);
+      setProductos(formatearProductos(response.data));
     } catch (error) {
       console.error('Error al cargar productos del servidor:', error);
     }
@@ -170,7 +172,7 @@ export default function POS() {
         .map((item) => {
           if (item.id === id) {
             const nuevaCant = item.cantidad + delta;
-            const prodOriginal = productos.find(p => p.id === id);
+            const prodOriginal = productos.find((p) => p.id === id);
             if (delta > 0 && prodOriginal && nuevaCant > prodOriginal.stock) {
               alert('Supera el stock disponible.');
               return item;
@@ -184,7 +186,7 @@ export default function POS() {
   };
 
   const removeItem = (id) => {
-    setCart((prev) => prev.filter(item => item.id !== id));
+    setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
   const total = cart.reduce((acc, item) => acc + item.precioVenta * item.cantidad, 0);
@@ -202,7 +204,7 @@ export default function POS() {
       usuario_id: user.id,
       total: total,
       metodo_pago: metodoPago,
-      items: cart.map(item => ({
+      items: cart.map((item) => ({
         producto_id: item.id,
         cantidad: item.cantidad,
         precio_unitario: item.precioVenta,
@@ -233,7 +235,6 @@ export default function POS() {
       setTimeout(() => {
         window.print();
       }, 300);
-
     } catch (error) {
       console.error('Error al procesar la venta:', error);
       alert(error.response?.data?.message || 'Error al procesar la venta en el servidor.');
@@ -241,55 +242,65 @@ export default function POS() {
   };
 
   const productosFiltrados = productos.filter((p) => {
-    const coincideBusqueda = p.nombre.toLowerCase().includes(search.toLowerCase()) || p.codigoBarras.includes(search);
+    const coincideBusqueda =
+      p.nombre.toLowerCase().includes(search.toLowerCase()) ||
+      String(p.codigoBarras || '').includes(search);
     const coincideCategoria = categoriaActiva === 'Todos' || p.categoria === categoriaActiva;
     return coincideBusqueda && coincideCategoria;
   });
 
   return (
     <div style={styles.container}>
-      
       <FacturaModal venta={ultimaVenta} onClose={() => setUltimaVenta(null)} />
 
       {/* MODAL MODERNO DE PRODUCTO NO ENCONTRADO */}
       {modalNoEncontradoAbierto && (
-        <div style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          backgroundColor: 'rgba(2, 6, 23, 0.85)',
-          backdropFilter: 'blur(5px)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 9999
-        }}>
-          <div style={{
-            backgroundColor: '#0f172a',
-            border: '1.5px solid #3b82f6',
-            borderRadius: '24px',
-            padding: '30px',
-            width: '400px',
-            textAlign: 'center',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
-          }}>
-            <div style={{
-              width: '50px',
-              height: '50px',
-              backgroundColor: 'rgba(59, 130, 246, 0.15)',
-              borderRadius: '50%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              margin: '0 auto 16px auto',
-              color: '#60a5fa'
-            }}>
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(2, 6, 23, 0.85)',
+            backdropFilter: 'blur(5px)',
+            display: 'flex',
+            justifyContent: 'center',
+            alignItems: 'center',
+            zIndex: 9999
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#0f172a',
+              border: '1.5px solid #3b82f6',
+              borderRadius: '24px',
+              padding: '30px',
+              width: '400px',
+              textAlign: 'center',
+              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)'
+            }}
+          >
+            <div
+              style={{
+                width: '50px',
+                height: '50px',
+                backgroundColor: 'rgba(59, 130, 246, 0.15)',
+                borderRadius: '50%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                margin: '0 auto 16px auto',
+                color: '#60a5fa'
+              }}
+            >
               <AlertTriangle size={24} />
             </div>
 
             <h3 style={{ color: '#fff', fontSize: '18px', fontWeight: '800', marginBottom: '8px' }}>
               ¡Código no registrado!
             </h3>
-            
+
             <p style={{ color: '#94a3b8', fontSize: '13px', marginBottom: '16px', lineHeight: '1.5' }}>
               El código de barras <strong style={{ color: '#60a5fa' }}>{codigoNoRegistrado}</strong> no se encuentra en la base de datos de Licores Donde Elian.
             </p>
@@ -314,7 +325,7 @@ export default function POS() {
               >
                 Cancelar
               </button>
-              
+
               <button
                 onClick={() => {
                   setModalNoEncontradoAbierto(false);
@@ -345,28 +356,31 @@ export default function POS() {
         <div style={{ textAlign: 'center', fontSize: '10px', marginBottom: '4px' }}>Punto de Venta & Inventario</div>
         <div style={{ textAlign: 'center', fontSize: '10px', marginBottom: '6px' }}>Anserma, Caldas</div>
         <div style={{ textAlign: 'center', fontSize: '10px', marginBottom: '6px' }}>--------------------------------</div>
-        
+
         <div style={{ fontSize: '10px', marginBottom: '6px' }}>
           <div><strong>Fecha:</strong> {new Date().toLocaleString()}</div>
           <div><strong>Cajero:</strong> Administrador</div>
         </div>
-        
+
         <div style={{ textAlign: 'center', fontSize: '10px', marginBottom: '6px' }}>--------------------------------</div>
-        
+
         <div style={{ fontSize: '11px' }}>
-          {ultimaVenta && ultimaVenta.items.map((item, index) => (
-            <div key={index} style={{ marginBottom: '4px' }}>
-              <div style={{ fontWeight: 'bold' }}>{item.nombre}</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span>{item.cantidad} x ${Number(item.precioVenta || 0).toLocaleString()}</span>
-                <span>${(item.cantidad * Number(item.precioVenta || 0)).toLocaleString()}</span>
+          {ultimaVenta &&
+            ultimaVenta.items.map((item, index) => (
+              <div key={index} style={{ marginBottom: '4px' }}>
+                <div style={{ fontWeight: 'bold' }}>{item.nombre}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>
+                    {item.cantidad} x ${Number(item.precioVenta || 0).toLocaleString()}
+                  </span>
+                  <span>${(item.cantidad * Number(item.precioVenta || 0)).toLocaleString()}</span>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
         </div>
 
         <div style={{ textAlign: 'center', fontSize: '10px', margin: '6px 0' }}>--------------------------------</div>
-        
+
         <div style={{ fontSize: '11px', fontWeight: 'bold' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span>TOTAL:</span>
@@ -421,7 +435,6 @@ export default function POS() {
 
       {/* SECCIÓN IZQUIERDA */}
       <div style={styles.leftPanel}>
-        
         <div style={styles.header}>
           <div style={styles.brandBox}>
             <div style={styles.logoMini}>
@@ -447,29 +460,32 @@ export default function POS() {
               </div>
             </form>
 
-            <button 
+            <button
               onClick={() => navigate('/historial')}
               style={{ backgroundColor: 'rgba(168, 85, 247, 0.15)', border: '1.5px solid #a855f7', padding: '10px 16px', borderRadius: '16px', cursor: 'pointer', color: '#c084fc', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '12px' }}
             >
               <FileText size={16} /> Historial
             </button>
 
-            <button 
+            <button
               onClick={() => navigate('/caja')}
               style={{ backgroundColor: 'rgba(52, 211, 153, 0.15)', border: '1.5px solid #34d399', padding: '10px 16px', borderRadius: '16px', cursor: 'pointer', color: '#34d399', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '12px' }}
             >
               <Wallet size={16} /> Caja
             </button>
 
-            <button 
+            <button
               onClick={() => navigate('/inventario')}
               style={{ backgroundColor: 'rgba(59, 130, 246, 0.15)', border: '1.5px solid #3b82f6', padding: '10px 16px', borderRadius: '16px', cursor: 'pointer', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold', fontSize: '12px' }}
             >
               <PackagePlus size={16} /> Inventario
             </button>
 
-            <button 
-              onClick={() => { localStorage.clear(); navigate('/login'); }}
+            <button
+              onClick={() => {
+                localStorage.clear();
+                navigate('/login');
+              }}
               style={{ backgroundColor: '#0f172a', border: '1.5px solid #1e293b', padding: '10px', borderRadius: '16px', cursor: 'pointer', color: '#94a3b8' }}
               title="Cerrar Sesión"
             >
@@ -533,10 +549,12 @@ export default function POS() {
                 </div>
                 <div style={styles.productFooter}>
                   <span style={styles.productPrice}>${prod.precioVenta.toLocaleString()}</span>
-                  <span style={{
-                    ...styles.productStock,
-                    color: esStockBajo ? '#fbbf24' : esAgotado ? '#f87171' : '#94a3b8'
-                  }}>
+                  <span
+                    style={{
+                      ...styles.productStock,
+                      color: esStockBajo ? '#fbbf24' : esAgotado ? '#f87171' : '#94a3b8'
+                    }}
+                  >
                     Stock: {prod.stock}
                   </span>
                 </div>
@@ -557,7 +575,6 @@ export default function POS() {
             <span style={{ fontSize: '11px', fontWeight: '800', backgroundColor: 'rgba(59, 130, 246, 0.15)', color: '#60a5fa', padding: '4px 10px', borderRadius: '10px' }}>
               {cart.reduce((acc, i) => acc + i.cantidad, 0)} ítems
             </span>
-
           </div>
 
           <div style={styles.cartItemsList}>
@@ -666,9 +683,7 @@ export default function POS() {
             COMPLETAR VENTA & FACTURAR
           </button>
         </div>
-
       </div>
-
     </div>
   );
 }

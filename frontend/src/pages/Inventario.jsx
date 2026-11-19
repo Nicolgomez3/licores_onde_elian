@@ -32,16 +32,23 @@ export default function Inventario() {
   const fetchProductos = async () => {
     try {
       const response = await api.get('/products');
-      const dataFormateada = response.data.map(p => ({
-        id: p.id,
-        codigoBarras: p.codigo_barras || p.codigoBarras,
-        nombre: p.nombre,
-        categoria_id: p.categoria_id || 1,
-        categoria: p.categoria_id === 2 ? 'Piqueteadero' : 'Licores y Cervezas',
-        precioCompra: Number(p.precio_compra || p.precioCompra || 0),
-        precioVenta: Number(p.precio_venta || p.precioVenta || 0),
-        stock: p.stock_actual !== undefined ? p.stock_actual : p.stock
-      }));
+      const dataFormateada = response.data.map(p => {
+        const catId = Number(p.categoria_id) || 1;
+        let nombreCategoria = 'Licores y Cervezas';
+        if (catId === 2) nombreCategoria = 'Piqueteadero y Comidas';
+        else if (catId === 3) nombreCategoria = 'Mecato';
+
+        return {
+          id: p.id,
+          codigoBarras: p.codigo_barras || p.codigoBarras,
+          nombre: p.nombre,
+          categoria_id: catId,
+          categoria: nombreCategoria,
+          precioCompra: Number(p.precio_compra || p.precioCompra || 0),
+          precioVenta: Number(p.precio_venta || p.precioVenta || 0),
+          stock: p.stock_actual !== undefined ? p.stock_actual : p.stock
+        };
+      });
       setProductos(dataFormateada);
     } catch (error) {
       console.error('Error al cargar inventario:', error);
@@ -179,6 +186,7 @@ export default function Inventario() {
               >
                 <option value="1">Licores y Cervezas</option>
                 <option value="2">Piqueteadero y Comidas</option>
+                <option value="3">Mecato</option>
               </select>
             </div>
 
